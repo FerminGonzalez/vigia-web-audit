@@ -1,0 +1,175 @@
+// ---------------------------------------------------------------------------
+// schema.prisma  --  Vigia Web Audit
+// ---------------------------------------------------------------------------
+// Modelo de datos del Micro-SaaS. Compatible con PostgreSQL local y con
+// Supabase (usa la cadena de conexion en DATABASE_URL).
+//
+//   npx prisma migrate dev --name init
+//   npx prisma generate
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Nota Supabase: si usas el pooler (puerto 6543) para la app, define
+  // `directUrl = env("DIRECT_URL")` y añade DIRECT_URL a tu .env con la
+  // conexion directa (puerto 5432) para las migraciones.
+}
+
+// --- Estados de suscripcion (normalizados entre proveedores) ---
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  PAUSED
+}
+
+// --- Estados de un informe ---
+enum ReportStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// --- Estado de un lead (motor de captacion) ---
+enum LeadStatus {
+  NEW
+  NURTURING
+  CONVERTED
+  UNSUBSCRIBED
+}
+
+/// Cliente (negocio) suscrito al servicio.
+model Client {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  businessName       String
+  sector             String?
+  city               String?  @default("Panama")
+  /// Identificador del cliente en la pasarela de pago (Stripe/Paddle).
+  paymentCustomerId  String?  @unique
+  /// Proveedor de pago activo: 'stripe' | 'paddle'.
+  paymentProvider    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  sites        Site[]
+  subscription Subscription?
+  reports      Report[]
+
+  @@index([paymentCustomerId])
+}
+
+/// Sitio web que se audita periodicamente.
+model Site {
+  id            String    @id @default(cuid())
+  clientId      String
+  url           String
+  label         String?
+  isActive      Boolean   @default(true)
+  lastAuditedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  audits  Audit[]
+  reports Report[]
+
+  @@index([clientId])
+  @@index([isActive, lastAuditedAt])
+}
+
+/// Suscripcion de pago normalizada (Stripe / Paddle).
+model Subscription {
+  id                     String             @id @default(cuid())
+  clientId               String             @unique
+  provider               String             @default("stripe")
+  externalSubscriptionId String             @unique
+  externalPriceId        String?
+  status                 SubscriptionStatus @default(INCOMPLETE)
+  cancelAtPeriodEnd      Boolean            @default(false)
+  currentPeriodEnd       DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+/// Resultado crudo de una auditoria tecnica.
+model Audit {
+  id               String   @id @default(cuid())
+  siteId           String
+  overallScore     Int
+  performanceScore Int?
+  seoScore         Int?
+  responseTimeMs   Int?
+  reachable        Boolean  @default(true)
+  /// Objeto AuditResult completo (JSON).
+  raw              Json
+  createdAt        DateTime @default(now())
+
+  site    Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  reports Report[]
+
+  @@index([siteId, createdAt])
+}
+
+/// Informe generado por IA y enviado por correo.
+model Report {
+  id             String       @id @default(cuid())
+  clientId       String
+  siteId         String
+  auditId        String
+  aiProvider     String       @default("fallback")
+  summary        String
+  status         ReportStatus @default(PENDING)
+  emailMessageId String?
+  error          String?
+  sentAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  audit  Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@index([status])
+}
+
+/// Lead captado por el motor de captacion (auditoria gratis).
+model Lead {
+  id            String     @id @default(cuid())
+  email         String
+  url           String
+  businessName  String?
+  overallScore  Int?
+  source        String     @default("landing")
+  status        LeadStatus @default(NEW)
+  /// Numero del ultimo correo de la secuencia enviado (0 = ninguno).
+  sequenceStep  Int        @default(1)
+  nextEmailAt   DateTime?
+  unsubscribedAt DateTime?
+  convertedAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([email, url])
+  @@index([status, nextEmailAt])
+}
+
+/// Registro de eventos de webhook ya procesados (idempotencia multi-proveedor).
+model ProcessedWebhook {
+  id        String   @id // event.id del proveedor
+  provider  String   @default("stripe")
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([provider, type])
+}
