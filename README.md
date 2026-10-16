@@ -2,7 +2,9 @@
 
 Micro-SaaS B2B **100% automatizado ("Zero-Touch")** para el mercado de Panamá:
 audita sitios web cada semana (rendimiento + SEO + seguridad), genera informes
-en **español claro** con IA y los envía por correo a dueños de negocios locales.
+en **español claro** con IA y los envía por correo a dueños de negocios locales.  
+Estos informes, tendran un formato y seguiran un protocolo estandarizado, dependiendo a
+las normas ISO correspondientes.
 
 > El cliente paga → la suscripción se sincroniza por webhook → cada semana el
 > sistema audita su sitio, la IA redacta el informe y se entrega por correo.
