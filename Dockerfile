@@ -4,6 +4,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Prisma necesita OpenSSL para su motor de consultas/migraciones en Alpine.
+RUN apk add --no-cache openssl
+
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci
@@ -16,6 +19,9 @@ RUN npm run build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# OpenSSL es imprescindible para el motor de Prisma (migrate deploy).
+RUN apk add --no-cache openssl
 
 COPY package*.json ./
 COPY prisma ./prisma
