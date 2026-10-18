@@ -130,8 +130,14 @@ async function onSubscriptionUpsert(
   }
 
   if (!client) {
-    logger.warn({ customerId: event.customerId }, 'Suscripcion sin cliente asociado; se omite');
-    return;
+    // Relanzamos para que el proveedor reintente: si no, un webhook de
+    // suscripcion que llega antes que el de checkout se perderia para siempre
+    // y el cliente de pago nunca recibiria informes.
+    logger.error(
+      { customerId: event.customerId },
+      'Suscripcion sin cliente asociado; se reintentara el webhook',
+    );
+    throw new Error('Suscripcion sin cliente asociado; el evento se reintentara');
   }
 
   await prisma.subscription.upsert({
@@ -159,7 +165,10 @@ async function onSubscriptionUpsert(
 
 async function onSubscriptionCanceled(subscriptionId: string): Promise<void> {
   const sub = await prisma.subscription.findUnique({ where: { externalSubscriptionId: subscriptionId } });
-  if (!sub) return;
+  if (!sub) {
+    logger.error({ subscriptionId }, 'Cancelacion para una suscripcion desconocida; se reintentara');
+    throw new Error('Cancelacion para una suscripcion desconocida; el evento se reintentara');
+  }
 
   await prisma.subscription.update({
     where: { externalSubscriptionId: subscriptionId },
@@ -173,7 +182,10 @@ async function onSubscriptionCanceled(subscriptionId: string): Promise<void> {
 
 async function onStatusChange(subscriptionId: string, status: SubscriptionStatus): Promise<void> {
   const sub = await prisma.subscription.findUnique({ where: { externalSubscriptionId: subscriptionId } });
-  if (!sub) return;
+  if (!sub) {
+    logger.error({ subscriptionId, status }, 'Cambio de estado para una suscripcion desconocida; se reintentara');
+    throw new Error('Cambio de estado para una suscripcion desconocida; el evento se reintentara');
+  }
 
   await prisma.subscription.update({ where: { externalSubscriptionId: subscriptionId }, data: { status } });
   // Reactivamos los sitios cuando la suscripcion vuelve a estar activa.

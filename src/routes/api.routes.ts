@@ -13,6 +13,7 @@ import {
   triggerAudit,
 } from '../controllers/audit.controller';
 import { requireAdminToken } from '../middlewares/auth.middleware';
+import { rateLimit } from '../middlewares/rate-limit.middleware';
 import { asyncHandler } from '../utils/async-handler';
 
 export const apiRouter = Router();
@@ -21,9 +22,9 @@ export const apiRouter = Router();
 apiRouter.get('/health', liveness);
 apiRouter.get('/health/ready', asyncHandler(readiness));
 
-// --- Facturacion (publico) ---
-apiRouter.post('/billing/checkout', asyncHandler(createCheckout));
-apiRouter.post('/billing/portal', asyncHandler(createPortal));
+// --- Facturacion (publico, con limite de tasa por IP) ---
+apiRouter.post('/billing/checkout', rateLimit({ max: 20, windowMs: 60 * 60 * 1000 }), asyncHandler(createCheckout));
+apiRouter.post('/billing/portal', rateLimit({ max: 30, windowMs: 60 * 60 * 1000 }), asyncHandler(createPortal));
 
 // --- Administracion (protegido por token) ---
 const admin = Router();

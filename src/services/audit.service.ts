@@ -15,6 +15,7 @@ import * as cheerio from 'cheerio';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { fetchWithTimeout, safeFetchText } from '../lib/http';
+import { assertPublicUrl } from '../lib/ssrf-guard';
 import type {
   AuditIssue,
   AuditResult,
@@ -63,35 +64,72 @@ interface HttpProbe {
   headers: Headers | null;
 }
 
+/** Numero maximo de redirecciones que seguimos manualmente (defensa SSRF). */
+const MAX_REDIRECTS = 5;
+
+/**
+ * Sondea el sitio siguiendo redirecciones MANUALMENTE para poder validar cada
+ * salto con el guard anti-SSRF: un host publico no puede redirigirnos a una IP
+ * interna (metadata cloud, localhost, rangos privados...).
+ */
 async function probeHttp(url: string): Promise<HttpProbe> {
   const started = Date.now();
-  try {
-    const res = await fetchWithTimeout(url, {
-      timeoutMs: env.AUDIT_TIMEOUT_MS,
-      retries: 1,
-      label: `probe:${url}`,
-      redirect: 'follow',
-    });
-    const html = await res.text();
+  let actual = url;
+  let redirected = false;
 
-    return {
-      reachable: true,
-      statusCode: res.status,
-      responseTimeMs: Date.now() - started,
-      redirected: res.redirected,
-      finalUrl: res.url || url,
-      contentType: res.headers.get('content-type'),
-      html,
-      headers: res.headers,
-    };
-  } catch (error) {
-    logger.warn({ url, err: (error as Error).message }, 'El sitio no responde');
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      const res = await fetchWithTimeout(actual, {
+        timeoutMs: env.AUDIT_TIMEOUT_MS,
+        retries: 1,
+        label: `probe:${actual}`,
+        redirect: 'manual',
+      });
+
+      // Redireccion: validamos el destino antes de seguirlo.
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (!location) break;
+        const siguiente = new URL(location, actual).toString();
+        await assertPublicUrl(siguiente); // lanza si apunta a un destino interno
+        actual = siguiente;
+        redirected = true;
+        continue;
+      }
+
+      const html = await res.text();
+      return {
+        reachable: true,
+        statusCode: res.status,
+        responseTimeMs: Date.now() - started,
+        redirected,
+        finalUrl: res.url || actual,
+        contentType: res.headers.get('content-type'),
+        html,
+        headers: res.headers,
+      };
+    }
+
+    // Cadena de redirecciones agotada (posible bucle) o destino bloqueado.
+    logger.warn({ url: actual }, 'El sitio no respondio tras las redirecciones');
     return {
       reachable: false,
       statusCode: 0,
       responseTimeMs: Date.now() - started,
-      redirected: false,
-      finalUrl: url,
+      redirected,
+      finalUrl: actual,
+      contentType: null,
+      html: '',
+      headers: null,
+    };
+  } catch (error) {
+    logger.warn({ url: actual, err: (error as Error).message }, 'El sitio no responde');
+    return {
+      reachable: false,
+      statusCode: 0,
+      responseTimeMs: Date.now() - started,
+      redirected,
+      finalUrl: actual,
       contentType: null,
       html: '',
       headers: null,
@@ -256,6 +294,15 @@ async function checkAuxFiles(
   finalUrl: string,
 ): Promise<{ robotsTxt: boolean | null; sitemapXml: boolean | null }> {
   const origin = originOf(finalUrl);
+
+  // El origen deriva de la URL final (tras redirecciones): lo validamos tambien.
+  try {
+    await assertPublicUrl(`${origin}/robots.txt`);
+    await assertPublicUrl(`${origin}/sitemap.xml`);
+  } catch {
+    return { robotsTxt: null, sitemapXml: null };
+  }
+
   const [robots, sitemap] = await Promise.all([
     safeFetchText(`${origin}/robots.txt`, { timeoutMs: 8000, retries: 0, label: 'robots' }),
     safeFetchText(`${origin}/sitemap.xml`, { timeoutMs: 8000, retries: 0, label: 'sitemap' }),
@@ -392,7 +439,8 @@ function buildIssues(
  * Nunca lanza por fallos de red: devuelve un resultado con `reachable=false`.
  */
 export async function auditSite(rawUrl: string): Promise<AuditResult> {
-  const url = normalizeUrl(rawUrl);
+  // Guard SSRF: rechazamos destinos internos antes de hacer cualquier peticion.
+  const url = (await assertPublicUrl(normalizeUrl(rawUrl))).toString();
   const started = Date.now();
   logger.info({ url }, 'Iniciando auditoria');
 

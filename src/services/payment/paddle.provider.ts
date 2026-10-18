@@ -92,6 +92,24 @@ async function fetchCustomerEmail(customerId: string | null): Promise<string | n
   }
 }
 
+/**
+ * Errores de normalizacion. Al lanzarlos, el controlador responde 5xx y el
+ * proveedor reintenta el webhook: nunca perdemos un pago en silencio.
+ */
+function emailRequerido(email: string | null): string {
+  if (!email) {
+    throw new Error('No se pudo determinar el email del cliente de Paddle; el evento se reintentara');
+  }
+  return email;
+}
+
+function subscriptionIdRequerido(id: string): string {
+  if (!id) {
+    throw new Error('Evento de Paddle sin subscription_id; el evento se reintentara');
+  }
+  return id;
+}
+
 interface PaddleEvent {
   event_id: string;
   event_type: string;
@@ -116,8 +134,7 @@ async function normalizePaddleEvent(event: PaddleEvent): Promise<NormalizedEvent
   switch (event.event_type) {
     case 'transaction.completed': {
       const customerId = data.customer_id ?? null;
-      const email = data.customer?.email ?? (await fetchCustomerEmail(customerId));
-      if (!email) return { kind: 'ignored' };
+      const email = emailRequerido(data.customer?.email ?? (await fetchCustomerEmail(customerId)));
       return {
         kind: 'checkout.completed',
         email,
@@ -138,7 +155,7 @@ async function normalizePaddleEvent(event: PaddleEvent): Promise<NormalizedEvent
       return {
         kind: 'subscription.upsert',
         customerId,
-        subscriptionId: data.id ?? data.subscription_id ?? '',
+        subscriptionId: subscriptionIdRequerido(data.id ?? data.subscription_id ?? ''),
         priceId: data.items?.[0]?.price?.id ?? null,
         status: mapStatus(data.status ?? 'active'),
         currentPeriodEnd: data.current_billing_period?.ends_at
@@ -152,10 +169,10 @@ async function normalizePaddleEvent(event: PaddleEvent): Promise<NormalizedEvent
     }
 
     case 'subscription.canceled':
-      return { kind: 'subscription.canceled', subscriptionId: data.id ?? '' };
+      return { kind: 'subscription.canceled', subscriptionId: subscriptionIdRequerido(data.id ?? '') };
 
     case 'subscription.past_due':
-      return { kind: 'subscription.past_due', subscriptionId: data.id ?? '' };
+      return { kind: 'subscription.past_due', subscriptionId: subscriptionIdRequerido(data.id ?? '') };
 
     default:
       return { kind: 'ignored' };

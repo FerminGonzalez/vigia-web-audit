@@ -94,6 +94,17 @@ const envSchema = z
         ctx.addIssue({ code: 'custom', path: ['PADDLE_WEBHOOK_SECRET'], message: 'Requerido cuando PAYMENT_PROVIDER=paddle' });
       }
     }
+
+    // En produccion exigimos una clave dedicada para firmar los magic links.
+    // Si no, caeria en ADMIN_API_TOKEN y un unico secreto gobernaria tanto el
+    // portal de clientes como la API administrativa.
+    if (value.NODE_ENV === 'production' && !value.PORTAL_SIGNING_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PORTAL_SIGNING_SECRET'],
+        message: 'Requerido en produccion; no reutilices ADMIN_API_TOKEN',
+      });
+    }
   });
 
 const parsed = envSchema.safeParse(process.env);

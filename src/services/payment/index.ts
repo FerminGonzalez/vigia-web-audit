@@ -4,6 +4,7 @@
  * Fachada de la capa de pagos: selecciona el proveedor activo y expone las
  * operaciones de alto nivel usadas por los controladores.
  */
+import { Prisma } from '@prisma/client';
 import type { Plan } from '../../config/pricing';
 import { planPriceId } from '../../config/pricing';
 import { prisma } from '../../lib/prisma';
@@ -33,14 +34,28 @@ export async function handlePaymentWebhook(
   const provider = getPaymentProvider(providerId);
   const { id, type, event } = await provider.verifyAndParse(rawBody, headers);
 
-  const yaVisto = await prisma.processedWebhook.findUnique({ where: { id } });
-  if (yaVisto) {
-    logger.info({ id, type }, 'Webhook duplicado; ignorado');
-    return { processed: false, id };
+  // Reservamos el id ANTES de aplicar el evento (claim atomico). Asi dos
+  // entregas concurrentes del mismo webhook no lo aplican por duplicado: la
+  // segunda choca con la clave primaria y se trata como duplicado.
+  try {
+    await prisma.processedWebhook.create({ data: { id, provider: provider.id, type } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      logger.info({ id, type }, 'Webhook duplicado; ignorado');
+      return { processed: false, id };
+    }
+    throw error;
   }
 
-  await applyPaymentEvent(provider.id, event);
-  await prisma.processedWebhook.create({ data: { id, provider: provider.id, type } });
+  try {
+    await applyPaymentEvent(provider.id, event);
+  } catch (error) {
+    // Liberamos la reserva para permitir el reintento del proveedor en vez de
+    // perder el evento marcandolo como procesado.
+    await prisma.processedWebhook.delete({ where: { id } }).catch(() => undefined);
+    throw error;
+  }
+
   return { processed: true, id };
 }
 

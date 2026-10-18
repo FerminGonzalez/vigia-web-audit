@@ -12,6 +12,7 @@ import { handlePaymentWebhook, createCheckoutForPlan, createPortalForClient } fr
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { getPlan, PLANS } from '../config/pricing';
+import { verifyClientToken } from '../services/auth-token.service';
 import { ValidationError, NotFoundError } from '../utils/errors';
 
 /**
@@ -63,17 +64,24 @@ export async function createCheckout(req: Request, res: Response): Promise<void>
   res.json({ ok: true, url });
 }
 
-/** POST /api/billing/portal  { clientId } o { email } */
+/**
+ * POST /api/billing/portal  { token }
+ *
+ * El portal de facturacion de un cliente SOLO puede abrirse con su token
+ * firmado (el mismo magic link que usa /cuenta). Antes aceptabamos `clientId` o
+ * `email` sin autenticar, lo que permitia abrir/cancelar la suscripcion de
+ * cualquier cliente (IDOR). Ahora el `clientId` se deriva exclusivamente del
+ * `sub` verificado del token.
+ */
+const portalSchema = z.object({ token: z.string().min(1) });
+
 export async function createPortal(req: Request, res: Response): Promise<void> {
-  const body = z
-    .object({ clientId: z.string().optional(), email: z.string().email().optional() })
-    .refine((v) => v.clientId || v.email, 'Debes indicar clientId o email')
-    .parse(req.body);
+  const { token } = portalSchema.parse(req.body);
 
-  const client = await prisma.client.findFirst({
-    where: body.clientId ? { id: body.clientId } : { email: body.email },
-  });
+  // verifyClientToken lanza UnauthorizedError si el token es invalido o expirado.
+  const clientId = verifyClientToken(token);
 
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client?.paymentCustomerId) {
     throw new NotFoundError('Cliente sin suscripcion asociada a una pasarela de pago');
   }
