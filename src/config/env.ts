@@ -80,8 +80,10 @@ const envSchema = z
     PORTAL_SIGNING_SECRET: z.string().min(16).optional(),
   })
   .superRefine((value, ctx) => {
-    // Validacion condicional: solo exigimos credenciales del proveedor activo.
-    if (value.PAYMENT_PROVIDER === 'stripe') {
+    // Validacion condicional: solo exigimos credenciales de pago cuando el alta
+    // de pago esta HABILITADA (PAID_OPTIONS_ENABLED=true). En la version de
+    // prueba (pagos solo informativos) no hacen falta.
+    if (value.PAID_OPTIONS_ENABLED && value.PAYMENT_PROVIDER === 'stripe') {
       if (!value.STRIPE_SECRET_KEY) {
         ctx.addIssue({ code: 'custom', path: ['STRIPE_SECRET_KEY'], message: 'Requerido cuando PAYMENT_PROVIDER=stripe' });
       }
@@ -89,7 +91,7 @@ const envSchema = z
         ctx.addIssue({ code: 'custom', path: ['STRIPE_WEBHOOK_SECRET'], message: 'Requerido cuando PAYMENT_PROVIDER=stripe' });
       }
     }
-    if (value.PAYMENT_PROVIDER === 'paddle') {
+    if (value.PAID_OPTIONS_ENABLED && value.PAYMENT_PROVIDER === 'paddle') {
       if (!value.PADDLE_API_KEY) {
         ctx.addIssue({ code: 'custom', path: ['PADDLE_API_KEY'], message: 'Requerido cuando PAYMENT_PROVIDER=paddle' });
       }
