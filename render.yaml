@@ -1,49 +1,28 @@
 # -----------------------------------------------------------------------------
 # Render Blueprint — Vigia Web Audit
-# Despliega: servicio web (Docker) + 2 cron jobs + PostgreSQL.
+# -----------------------------------------------------------------------------
+# Despliega: servicio web (Docker) + 2 cron jobs.
+# La base de datos va en SUPABASE (externa), por eso NO se define un
+# `databases:` de Render (su Postgres gratuito caduca a los 90 dias).
 #
 # Uso: en Render, "New > Blueprint" y apunta a este repositorio.
-# Rellena los secretos marcados con `sync: false` en el panel de Render.
+# Solo hay que rellenar las variables marcadas con `sync: false`
+# (DATABASE_URL, RESEND_API_KEY, EMAIL_FROM y, opcionalmente, IA/PageSpeed).
+#
+# Modo prueba: PAID_OPTIONS_ENABLED=false -> los planes son informativos y no
+# se exigen credenciales de pago.
 # -----------------------------------------------------------------------------
-services:
-  # --- API + paginas web ---
-  - type: web
-    name: vigia-web-audit
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    plan: starter
-    healthCheckPath: /api/health
-    autoDeploy: true
+
+# --- Variables compartidas por el web y los crons ---
+# (ADMIN_API_TOKEN y PORTAL_SIGNING_SECRET se generan solos; deben ser iguales
+#  en los 3 servicios, por eso van en un grupo comun.)
+envVarGroups:
+  - name: vigia-shared
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: APP_BASE_URL
-        sync: false
+      # Supabase (Project Settings > Database > Connection string, modo pooler)
       - key: DATABASE_URL
-        fromDatabase:
-          name: vigia-db
-          property: connectionString
-      # El cron corre como servicio aparte; desactivamos el in-process.
-      - key: CRON_ENABLED
-        value: "false"
-      - key: CRON_TIMEZONE
-        value: America/Panama
-      # --- Pagos ---
-      - key: PAYMENT_PROVIDER
-        value: paddle
-      - key: PADDLE_ENVIRONMENT
-        value: production
-      - key: PADDLE_API_KEY
         sync: false
-      - key: PADDLE_WEBHOOK_SECRET
-        sync: false
-      - key: PADDLE_PRICE_ID
-        sync: false
-      - key: PADDLE_PRICE_ID_PRO
-        sync: false
-      - key: PADDLE_PRICE_ID_AGENCY
-        sync: false
-      # --- Correo ---
+      # Correo (Resend)
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
@@ -52,77 +31,89 @@ services:
         sync: false
       - key: ADMIN_NOTIFICATION_EMAIL
         sync: false
-      # --- IA ---
+      # IA (opcional: si faltan, se usa el generador local sin coste)
       - key: AI_PROVIDER
         value: auto
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      # --- Auditoria / seguridad ---
+      # Rendimiento real (opcional)
       - key: PAGESPEED_API_KEY
         sync: false
+      # Seguridad: se generan automaticamente y se comparten
       - key: ADMIN_API_TOKEN
-        sync: false
+        generateValue: true
       - key: PORTAL_SIGNING_SECRET
+        generateValue: true
+
+services:
+  # --- API + paginas web ---
+  - type: web
+    name: vigia-web-audit
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: ohio
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - fromGroup: vigia-shared
+      - key: NODE_ENV
+        value: production
+      - key: APP_BASE_URL
         sync: false
+      # El cron corre como servicio aparte; desactivamos el in-process.
+      - key: CRON_ENABLED
+        value: "false"
+      - key: CRON_TIMEZONE
+        value: America/Panama
+      # Version de prueba: planes informativos, sin alta de pago.
+      - key: PAID_OPTIONS_ENABLED
+        value: "false"
+      - key: PAYMENT_PROVIDER
+        value: paddle
+      - key: PADDLE_ENVIRONMENT
+        value: production
 
   # --- Cron semanal: auditorias ---
   - type: cron
     name: vigia-audit-weekly
     runtime: docker
     dockerfilePath: ./Dockerfile
-    schedule: "0 8 * * 1"
+    region: ohio
+    schedule: "0 13 * * 1" # 13:00 UTC = 08:00 America/Panama
     dockerCommand: node dist/jobs/run-once.js
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: vigia-db
-          property: connectionString
+      - fromGroup: vigia-shared
+      - key: NODE_ENV
+        value: production
       - key: APP_BASE_URL
         sync: false
       - key: CRON_ENABLED
         value: "false"
+      - key: PAID_OPTIONS_ENABLED
+        value: "false"
       - key: PAYMENT_PROVIDER
         value: paddle
-      - key: RESEND_API_KEY
-        sync: false
-      - key: EMAIL_FROM
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: ADMIN_API_TOKEN
-        sync: false
-      - key: PORTAL_SIGNING_SECRET
-        sync: false
 
   # --- Cron diario: nutricion de leads ---
   - type: cron
     name: vigia-nurture-daily
     runtime: docker
     dockerfilePath: ./Dockerfile
-    schedule: "0 9 * * *"
+    region: ohio
+    schedule: "0 14 * * *" # 14:00 UTC = 09:00 America/Panama
     dockerCommand: node dist/jobs/run-nurture-once.js
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: vigia-db
-          property: connectionString
+      - fromGroup: vigia-shared
+      - key: NODE_ENV
+        value: production
       - key: APP_BASE_URL
         sync: false
       - key: CRON_ENABLED
         value: "false"
-      - key: RESEND_API_KEY
-        sync: false
-      - key: EMAIL_FROM
-        sync: false
-      - key: ADMIN_API_TOKEN
-        sync: false
-      - key: PORTAL_SIGNING_SECRET
-        sync: false
-
-databases:
-  - name: vigia-db
-    plan: free
-    databaseName: vigia
-    user: vigia
+      - key: PAID_OPTIONS_ENABLED
+        value: "false"
+      - key: PAYMENT_PROVIDER
+        value: paddle
