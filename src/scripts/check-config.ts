@@ -76,6 +76,11 @@ async function main(): Promise<void> {
   console.log('Aplicacion');
   ok(`Entorno: ${env.NODE_ENV}`);
   ok(`URL base: ${env.APP_BASE_URL}`);
+  ok(
+    `Opciones de pago: ${
+      env.PAID_OPTIONS_ENABLED ? 'habilitadas' : 'modo informativo (alta deshabilitada)'
+    }`,
+  );
 
   console.log('\nProveedor de pago');
   ok(`Proveedor activo: ${env.PAYMENT_PROVIDER}`);

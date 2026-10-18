@@ -49,6 +49,11 @@ const checkoutSchema = z.object({
 
 /** POST /api/billing/checkout */
 export async function createCheckout(req: Request, res: Response): Promise<void> {
+  // Version de prueba: el alta de pago aun no esta implementada.
+  if (!env.PAID_OPTIONS_ENABLED) {
+    throw new ValidationError('Las suscripciones aun no estan habilitadas (version de prueba)');
+  }
+
   const data = checkoutSchema.parse(req.body);
   const plan = data.plan ? getPlan(data.plan) : PLANS[0];
   if (!plan) throw new ValidationError('Plan invalido');

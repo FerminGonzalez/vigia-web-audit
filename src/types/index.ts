@@ -76,6 +76,24 @@ export interface AuditResult {
   issues: AuditIssue[];
 }
 
+/** Referencia a la norma/framework bajo el que se estructura un informe. */
+export interface ReportStandardRef {
+  id: string;
+  /** Grupo comercial mostrado al cliente (1..5). */
+  group: number;
+  /** Codigo corto de la norma (ej. "NIST SP 800-61"). */
+  code: string;
+  /** Nombre completo legible de la norma. */
+  name: string;
+}
+
+/** Una seccion del informe, titulada segun la norma elegida por el cliente. */
+export interface ReportSection {
+  id: string;
+  title: string;
+  body: string;
+}
+
 /** Informe redactado por IA, listo para el cliente final. */
 export interface AiReport {
   /** Resumen ejecutivo en 2-4 frases, en lenguaje de negocios. */
@@ -90,6 +108,10 @@ export interface AiReport {
   callToAction: string;
   /** Proveedor que genero el informe. */
   provider: 'anthropic' | 'openai' | 'fallback';
+  /** Norma/framework elegido por el cliente (opcional por compatibilidad). */
+  standard?: ReportStandardRef;
+  /** Secciones estructuradas segun la norma elegida. */
+  sections?: ReportSection[];
 }
 
 /** Contexto de negocio que enriquece el prompt de IA. */

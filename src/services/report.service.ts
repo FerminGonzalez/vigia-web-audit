@@ -14,6 +14,7 @@ import { logger } from '../config/logger';
 import { auditSite } from './audit.service';
 import { generateAiReport } from './ai.service';
 import { sendWeeklyReport } from './email.service';
+import { getReportStandard } from '../config/report-standards';
 import type { BusinessContext } from '../types';
 import { ReportStatus } from '@prisma/client';
 
@@ -81,8 +82,9 @@ export async function runReportForSite(
     },
   });
 
-  // 3) Redaccion del informe con IA (con fallback local si falla)
-  const aiReport = await generateAiReport(audit, businessContext);
+  // 3) Redaccion del informe con IA segun la norma elegida por el cliente.
+  const standard = getReportStandard(client.reportStandard);
+  const aiReport = await generateAiReport(audit, businessContext, standard);
 
   // 4) Guardamos el informe (aun sin enviar) para tener registro.
   const savedReport = await prisma.report.create({
@@ -92,6 +94,7 @@ export async function runReportForSite(
       auditId: savedAudit.id,
       aiProvider: aiReport.provider,
       summary: aiReport.executiveSummary,
+      reportStandard: standard.id,
       status: ReportStatus.PENDING,
     },
   });

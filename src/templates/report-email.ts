@@ -5,7 +5,7 @@
  * Usa tablas e inline styles (compatibilidad con Gmail, Outlook y moviles).
  * Los colores siguen una paleta sobria y profesional.
  */
-import type { AiReport, AuditResult, BusinessContext } from '../types';
+import type { AiReport, AuditResult, BusinessContext, ReportSection } from '../types';
 
 const COLORS = {
   bg: '#f4f6fb',
@@ -57,6 +57,19 @@ function section(title: string, contentHtml: string): string {
     </div>`;
 }
 
+/** Renderiza las secciones del informe segun la norma elegida por el cliente. */
+function renderStandardSections(sections: ReportSection[]): string {
+  return sections
+    .map((s) => {
+      const body = escapeHtml(s.body).replace(/\n/g, '<br/>');
+      return section(
+        escapeHtml(s.title),
+        `<p style="margin:0;font-size:15px;line-height:1.6;color:${COLORS.text};">${body}</p>`,
+      );
+    })
+    .join('');
+}
+
 export interface ReportEmailData {
   business: BusinessContext;
   audit: AuditResult;
@@ -73,6 +86,7 @@ export function renderReportEmail(data: ReportEmailData): string {
   const { business, audit, report } = data;
   const score = audit.overallScore;
   const color = scoreColor(score);
+  const hasSections = Array.isArray(report.sections) && report.sections.length > 0;
 
   const tendencia =
     typeof business.previousScore === 'number'
@@ -97,7 +111,12 @@ export function renderReportEmail(data: ReportEmailData): string {
     <!-- Encabezado -->
     <div style="background:${COLORS.card};border-radius:12px;padding:28px;border:1px solid ${COLORS.border};">
       <p style="margin:0 0 4px;font-size:13px;color:${COLORS.muted};text-transform:uppercase;letter-spacing:0.5px;">Informe semanal automatico</p>
-      <h1 style="margin:0 0 20px;font-size:22px;color:${COLORS.text};">${escapeHtml(business.businessName)}</h1>
+      <h1 style="margin:0 0 8px;font-size:22px;color:${COLORS.text};">${escapeHtml(business.businessName)}</h1>
+      ${
+        report.standard
+          ? `<p style="margin:0 0 20px;font-size:13px;color:${COLORS.muted};">Estructurado segun <strong>Grupo ${report.standard.group} - ${escapeHtml(report.standard.code)}</strong></p>`
+          : '<div style="height:12px;"></div>'
+      }
 
       <!-- Puntuacion -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -131,14 +150,17 @@ export function renderReportEmail(data: ReportEmailData): string {
       </table>
     </div>
 
-    <!-- Resumen ejecutivo -->
+    <!-- Cuerpo del informe -->
     <div style="background:${COLORS.card};border-radius:12px;padding:28px;border:1px solid ${COLORS.border};margin-top:16px;">
-      <h2 style="margin:0 0 12px;font-size:16px;color:${COLORS.text};font-weight:600;">Resumen</h2>
-      <p style="margin:0;font-size:15px;line-height:1.6;color:${COLORS.text};">${escapeHtml(report.executiveSummary)}</p>
-
-      ${section('Lo que va bien', renderList(report.strengths, '✓', COLORS.good))}
-      ${section('Que puedes mejorar', renderList(report.improvements, '→', COLORS.primary))}
-      ${section('Acciones rapidas', renderList(report.quickWins, '⚡', COLORS.warn))}
+      ${
+        hasSections
+          ? renderStandardSections(report.sections as ReportSection[])
+          : `<h2 style="margin:0 0 12px;font-size:16px;color:${COLORS.text};font-weight:600;">Resumen</h2>
+             <p style="margin:0;font-size:15px;line-height:1.6;color:${COLORS.text};">${escapeHtml(report.executiveSummary)}</p>
+             ${section('Lo que va bien', renderList(report.strengths, '✓', COLORS.good))}
+             ${section('Que puedes mejorar', renderList(report.improvements, '→', COLORS.primary))}
+             ${section('Acciones rapidas', renderList(report.quickWins, '⚡', COLORS.warn))}`
+      }
 
       <div style="margin-top:28px;padding:16px;background:#eef2ff;border-radius:8px;">
         <p style="margin:0;font-size:15px;color:${COLORS.primary};font-weight:600;">${escapeHtml(report.callToAction)}</p>

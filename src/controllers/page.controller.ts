@@ -10,6 +10,7 @@ import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { createCheckoutForPlan, createPortalForClient } from '../services/payment';
 import { getPlan, PLANS } from '../config/pricing';
+import { REPORT_STANDARDS } from '../config/report-standards';
 import { verifyClientToken } from '../services/auth-token.service';
 import { renderLanding } from '../views/landing';
 import { renderMessage, renderPortal, renderThanks } from '../views/pages';
@@ -34,14 +35,26 @@ export function checkoutFormPage(req: Request, res: Response): void {
   const plan = getPlan(planId) ?? getPlan('basico');
   if (!plan) throw new NotFoundError('Plan no encontrado');
 
+  const standardSelect = REPORT_STANDARDS.map(
+    (s) => `<option value="${s.id}">Grupo ${s.group} - ${escapeHtml(s.code)}</option>`,
+  ).join('');
+
   const body = `<section><div class="container" style="max-width:560px;">
     <h1 style="font-size:26px;">Empezar con el plan ${escapeHtml(plan.name)}</h1>
     <p class="muted">${escapeHtml(plan.tagline)} · ${"$" + plan.priceUsd}/mes</p>
+    ${
+      env.PAID_OPTIONS_ENABLED
+        ? ''
+        : '<p class="muted" style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:10px 14px;font-size:14px;">🔧 Versión de prueba: el alta de pago aún no está habilitada. Puedes elegir tu norma igualmente y probar la auditoría gratis.</p>'
+    }
     <form class="grid" method="POST" action="/empezar" style="gap:14px;margin-top:20px;">
       <input type="hidden" name="plan" value="${escapeHtml(plan.id)}" />
       <input type="text" name="businessName" placeholder="Nombre de tu negocio" required />
       <input type="email" name="email" placeholder="Correo electrónico" required />
       <input type="url" name="siteUrl" placeholder="https://tu-negocio.com" required />
+      <select name="reportStandard" style="width:100%;padding:13px 15px;font-size:15px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--ink);">
+        ${standardSelect}
+      </select>
       <button class="btn btn-primary" type="submit">Continuar al pago seguro</button>
     </form>
     <p class="muted" style="font-size:13px;margin-top:14px;">
@@ -56,11 +69,28 @@ const checkoutFormSchema = z.object({
   businessName: z.string().min(2).max(120),
   email: z.string().email(),
   siteUrl: z.string().url(),
+  reportStandard: z.string().optional(),
 });
 
 /** POST /empezar - Crea la sesion de Stripe y redirige. */
 export async function checkoutFormSubmit(req: Request, res: Response): Promise<void> {
   const data = checkoutFormSchema.parse(req.body);
+
+  // Version de prueba: las opciones de pago son solo informativas.
+  if (!env.PAID_OPTIONS_ENABLED) {
+    res
+      .status(200)
+      .type('html')
+      .send(
+        renderMessage(
+          'Versión de prueba',
+          'El alta de pago todavía no está habilitada. Guardamos tu interés y te avisaremos en cuanto abramos. Mientras tanto, prueba la auditoría gratis en la página de inicio.',
+          true,
+        ),
+      );
+    return;
+  }
+
   const plan = getPlan(data.plan) ?? PLANS[0];
   if (!plan) throw new ValidationError('Plan invalido');
 

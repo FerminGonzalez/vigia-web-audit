@@ -55,6 +55,9 @@ model Client {
   paymentCustomerId  String?  @unique
   /// Proveedor de pago activo: 'stripe' | 'paddle'.
   paymentProvider    String?
+  /// Norma/framework elegido por el cliente para estructurar sus informes
+  /// (Grupo 1..5: nist-800-61 | iso-27035 | iso-27001 | enisa | sans).
+  reportStandard     String   @default("nist-800-61")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -128,6 +131,8 @@ model Report {
   siteId         String
   auditId        String
   aiProvider     String       @default("fallback")
+  /// Norma bajo la que se estructuro el informe (Grupo 1..5).
+  reportStandard String?
   summary        String
   status         ReportStatus @default(PENDING)
   emailMessageId String?
@@ -150,6 +155,8 @@ model Lead {
   url           String
   businessName  String?
   overallScore  Int?
+  /// Norma elegida para el informe de muestra (Grupo 1..5).
+  reportStandard String?
   source        String     @default("landing")
   status        LeadStatus @default(NEW)
   /// Numero del ultimo correo de la secuencia enviado (0 = ninguno).

@@ -27,6 +27,9 @@ const envSchema = z
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
+    // Version de prueba: los planes se muestran pero el alta de pago no se
+    // habilita (solo informativo).
+    PAID_OPTIONS_ENABLED: booleanish.default('false'),
 
     // --- Base de datos ---
     DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatorio (PostgreSQL/Supabase)'),

@@ -15,18 +15,22 @@ import { logger } from '../config/logger';
 import { auditSite, normalizeUrl } from './audit.service';
 import { generateAiReport } from './ai.service';
 import { sendSampleReport } from './email.service';
+import { getReportStandard, type ReportStandardId } from '../config/report-standards';
 import type { BusinessContext } from '../types';
 
 export interface LeadInput {
   email: string;
   url: string;
   businessName?: string;
+  /** Norma elegida por el cliente (uno de los 5 grupos). */
+  standard?: string;
 }
 
 export interface LeadResult {
   overallScore: number;
   summary: string;
   emailSent: boolean;
+  standardId: ReportStandardId;
 }
 
 /** Deduce un nombre de negocio legible a partir de la URL. */
@@ -46,6 +50,7 @@ function nombreDesdeUrl(url: string): string {
  */
 export async function captureLead(input: LeadInput): Promise<LeadResult> {
   const businessName = input.businessName?.trim() || nombreDesdeUrl(input.url);
+  const standard = getReportStandard(input.standard);
 
   const audit = await auditSite(input.url);
   const contexto: BusinessContext = {
@@ -54,7 +59,7 @@ export async function captureLead(input: LeadInput): Promise<LeadResult> {
     city: 'Panama',
     previousScore: null,
   };
-  const report = await generateAiReport(audit, contexto);
+  const report = await generateAiReport(audit, contexto, standard);
 
   // Registramos el lead y programamos el inicio de la secuencia de nutricion.
   await prisma.lead
@@ -64,6 +69,7 @@ export async function captureLead(input: LeadInput): Promise<LeadResult> {
         url: normalizeUrl(input.url),
         businessName,
         overallScore: audit.overallScore,
+        reportStandard: standard.id,
         source: 'landing',
         status: 'NURTURING',
         sequenceStep: 1,
@@ -80,7 +86,15 @@ export async function captureLead(input: LeadInput): Promise<LeadResult> {
     logger.error({ err: (error as Error).message, email: input.email }, 'Fallo el envio del informe de muestra');
   }
 
-  logger.info({ email: input.email, url: audit.finalUrl, score: audit.overallScore }, 'Lead captado');
+  logger.info(
+    { email: input.email, url: audit.finalUrl, score: audit.overallScore, standard: standard.id },
+    'Lead captado',
+  );
 
-  return { overallScore: audit.overallScore, summary: report.executiveSummary, emailSent };
+  return {
+    overallScore: audit.overallScore,
+    summary: report.executiveSummary,
+    emailSent,
+    standardId: standard.id,
+  };
 }

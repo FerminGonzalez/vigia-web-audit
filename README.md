@@ -20,6 +20,12 @@ las normas ISO correspondientes.
 - **Portal del cliente** con magic link firmado (`/cuenta`) e histórico de auditorías.
 - **Auditoría técnica**: HTTP + HTML (Cheerio) + Google PageSpeed Insights.
 - **Informe con IA** (Anthropic Claude / OpenAI) con *fallback* local sin coste.
+- **Informes bajo 5 estándares** elegibles por el cliente (y por lead): Grupo 1
+  NIST SP 800-61, Grupo 2 ISO/IEC 27035, Grupo 3 ISO/IEC 27001, Grupo 4 ENISA y
+  Grupo 5 SANS Incident Handler's Handbook (PICERL). La estructura del informe
+  (fases/secciones) cambia según el grupo elegido.
+- **Modo prueba (`PAID_OPTIONS_ENABLED=false`)**: los planes se muestran con
+  fines informativos, pero el alta de pago permanece deshabilitada.
 - **Pagos multi-proveedor**: Stripe y **Paddle** (imprescindible para cobrar desde Panamá).
 - **Webhooks idempotentes** con verificación de firma.
 - **Cron semanal** de auditorías y **cron diario** de nutrición.

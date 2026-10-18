@@ -20,6 +20,12 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import { env, resolveAiProvider } from '../config/env';
 import { logger } from '../config/logger';
+import {
+  buildStandardSections,
+  getReportStandard,
+  standardRef,
+  type ReportStandard,
+} from '../config/report-standards';
 import type { AiReport, AuditResult, BusinessContext } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -50,11 +56,13 @@ Reglas estrictas:
 - No inventes datos que no esten en el analisis.
 Responde SIEMPRE con JSON valido que cumpla el esquema solicitado, sin texto adicional.`;
 
-function buildUserPrompt(audit: AuditResult, ctx: BusinessContext): string {
+function buildUserPrompt(audit: AuditResult, ctx: BusinessContext, standard: ReportStandard): string {
   const tendencia =
     typeof ctx.previousScore === 'number'
       ? `Puntuacion de la semana pasada: ${ctx.previousScore}/100.`
       : 'No hay informe previo (es el primer analisis).';
+
+  const fases = standard.sections.map((s) => `- ${s.title}: ${s.hint}`).join('\n');
 
   const hallazgos = audit.issues.length
     ? audit.issues
@@ -63,6 +71,11 @@ function buildUserPrompt(audit: AuditResult, ctx: BusinessContext): string {
     : '- No se detectaron problemas relevantes.';
 
   return `Analiza los siguientes datos y redacta el informe semanal.
+
+NORMA SOLICITADA POR EL CLIENTE: Grupo ${standard.group} - ${standard.code} (${standard.name}).
+${standard.summary}
+Estructura las recomendaciones segun estas fases de la norma (usa su terminologia en el resumen):
+${fases}
 
 NEGOCIO:
 - Nombre: ${ctx.businessName}
@@ -99,6 +112,7 @@ Devuelve un JSON con esta forma exacta:
 async function generateWithAnthropic(
   audit: AuditResult,
   ctx: BusinessContext,
+  standard: ReportStandard,
 ): Promise<RawAiReport> {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.AI_MODEL || 'claude-3-5-sonnet-latest';
@@ -107,7 +121,7 @@ async function generateWithAnthropic(
     model,
     max_tokens: env.AI_MAX_TOKENS,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildUserPrompt(audit, ctx) }],
+    messages: [{ role: 'user', content: buildUserPrompt(audit, ctx, standard) }],
   });
 
   const text = response.content
@@ -121,6 +135,7 @@ async function generateWithAnthropic(
 async function generateWithOpenAi(
   audit: AuditResult,
   ctx: BusinessContext,
+  standard: ReportStandard,
 ): Promise<RawAiReport> {
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   const model = env.AI_MODEL || 'gpt-4o-mini';
@@ -131,7 +146,7 @@ async function generateWithOpenAi(
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserPrompt(audit, ctx) },
+      { role: 'user', content: buildUserPrompt(audit, ctx, standard) },
     ],
   });
 
@@ -163,7 +178,11 @@ function parseAiJson(raw: string): RawAiReport {
  * Genera un informe decente a partir de reglas, sin llamar a ningun modelo.
  * Se usa si no hay credenciales o si la API falla.
  */
-function generateFallback(audit: AuditResult, ctx: BusinessContext): AiReport {
+function generateFallback(
+  audit: AuditResult,
+  ctx: BusinessContext,
+  standard: ReportStandard = getReportStandard(),
+): AiReport {
   const nombre = ctx.businessName;
   const score = audit.overallScore;
 
@@ -219,18 +238,45 @@ function generateFallback(audit: AuditResult, ctx: BusinessContext): AiReport {
   if (quickWins.length === 0)
     quickWins.push('Mantener el sitio actualizado y publicar contenido nuevo con regularidad.');
 
-  return {
-    executiveSummary: resumen,
-    strengths: strengths.slice(0, 5),
-    improvements: improvements.length ? improvements : ['Mantener el buen estado actual del sitio.'],
-    quickWins,
-    callToAction:
-      '¿Quieres que nos encarguemos de aplicar estas mejoras por ti? Responde a este correo y te ayudamos.',
-    provider: 'fallback',
-  };
+  const strengthsFinal = strengths.slice(0, 5);
+  const improvementsFinal = improvements.length
+    ? improvements
+    : ['Mantener el buen estado actual del sitio.'];
+  const callToAction =
+    '¿Quieres que nos encarguemos de aplicar estas mejoras por ti? Responde a este correo y te ayudamos.';
+
+  return finalizeReport(
+    {
+      executiveSummary: resumen,
+      strengths: strengthsFinal,
+      improvements: improvementsFinal,
+      quickWins,
+      callToAction,
+    },
+    standard,
+    'fallback',
+  );
 }
 
 const severityRank = (s: string): number => (s === 'critical' ? 3 : s === 'warning' ? 2 : 1);
+
+/**
+ * Compone el informe final anadiendo la referencia a la norma y las secciones
+ * estructuradas segun ella (mismo contenido, marco distinto).
+ */
+function finalizeReport(
+  raw: RawAiReport,
+  standard: ReportStandard,
+  provider: AiReport['provider'],
+): AiReport {
+  const sections = buildStandardSections(standard, {
+    summary: raw.executiveSummary,
+    strengths: raw.strengths,
+    improvements: raw.improvements,
+    quickWins: raw.quickWins,
+  });
+  return { ...raw, provider, standard: standardRef(standard), sections };
+}
 
 // ---------------------------------------------------------------------------
 // API publica
@@ -243,27 +289,29 @@ const severityRank = (s: string): number => (s === 'critical' ? 3 : s === 'warni
 export async function generateAiReport(
   audit: AuditResult,
   context: BusinessContext,
+  standardInput?: ReportStandard,
 ): Promise<AiReport> {
+  const standard = standardInput ?? getReportStandard();
   const provider = resolveAiProvider();
 
   if (!provider) {
-    logger.info('Sin proveedor de IA configurado: usando generador local');
-    return generateFallback(audit, context);
+    logger.info({ standard: standard.id }, 'Sin proveedor de IA configurado: usando generador local');
+    return generateFallback(audit, context, standard);
   }
 
   try {
     const raw =
       provider === 'anthropic'
-        ? await generateWithAnthropic(audit, context)
-        : await generateWithOpenAi(audit, context);
+        ? await generateWithAnthropic(audit, context, standard)
+        : await generateWithOpenAi(audit, context, standard);
 
-    return { ...raw, provider };
+    return finalizeReport(raw, standard, provider);
   } catch (error) {
     logger.error(
-      { provider, err: (error as Error).message },
+      { provider, standard: standard.id, err: (error as Error).message },
       'La generacion con IA fallo; usando fallback local',
     );
-    return generateFallback(audit, context);
+    return generateFallback(audit, context, standard);
   }
 }
 
