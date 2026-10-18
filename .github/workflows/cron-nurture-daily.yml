@@ -1,0 +1,33 @@
+# -----------------------------------------------------------------------------
+# Cron diario de nutricion de leads (alternativa sin tarjeta a los cron de Render).
+#
+# Dispara el procesamiento de la cola de nutricion en la app alojada en Render
+# free. El endpoint admin esta protegido por ADMIN_API_TOKEN (secret del repo).
+#
+# Requisitos (ya configurados):
+#   - Variable de repo: APP_BASE_URL   (ej. https://vigia-web-audit.onrender.com)
+#   - Secret de repo:   ADMIN_API_TOKEN
+# -----------------------------------------------------------------------------
+name: Cron diario (nutricion)
+
+on:
+  schedule:
+    # Todos los dias 14:00 UTC = 09:00 America/Panama
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+jobs:
+  nutrir:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Procesar cola de nutricion
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          if [ -z "$APP_BASE_URL" ]; then echo "Falta la variable APP_BASE_URL"; exit 1; fi
+          curl -sS --fail-with-body -m 300 \
+            -X POST "$APP_BASE_URL/api/admin/nurture/run" \
+            -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"limit":100}'

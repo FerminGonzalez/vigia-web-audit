@@ -1,0 +1,37 @@
+# -----------------------------------------------------------------------------
+# Cron semanal de auditorias (alternativa sin tarjeta a los cron jobs de Render).
+#
+# Dispara la ronda semanal en la app alojada en Render free. El endpoint admin
+# esta protegido por ADMIN_API_TOKEN (secret del repo).
+#
+# Requisitos (ya configurados):
+#   - Variable de repo: APP_BASE_URL   (ej. https://vigia-web-audit.onrender.com)
+#   - Secret de repo:   ADMIN_API_TOKEN
+#
+# Nota: GitHub puede retrasar el `schedule` unos minutos y desactiva los
+# workflows programados tras ~60 dias sin actividad en el repositorio.
+# -----------------------------------------------------------------------------
+name: Cron semanal (auditorias)
+
+on:
+  schedule:
+    # Lunes 13:00 UTC = 08:00 America/Panama
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar ronda semanal de auditorias
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          if [ -z "$APP_BASE_URL" ]; then echo "Falta la variable APP_BASE_URL"; exit 1; fi
+          # Render free duerme; damos margen para el cold start (~60s).
+          curl -sS --fail-with-body -m 300 \
+            -X POST "$APP_BASE_URL/api/admin/audits/run" \
+            -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}'

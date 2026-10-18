@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { runReportForSite } from '../services/report.service';
 import { runWeeklyAudit } from '../jobs/weekly-audit.cron';
+import { processNurtureQueue } from '../services/nurture.service';
 import { auditSite } from '../services/audit.service';
 import { NotFoundError } from '../utils/errors';
 
@@ -29,6 +30,20 @@ export async function triggerAudit(req: Request, res: Response): Promise<void> {
 
   const resumen = await runWeeklyAudit();
   res.json({ ok: true, resumen });
+}
+
+/**
+ * POST /api/admin/nurture/run
+ * Procesa la cola de nutricion de leads una sola vez.
+ * Pensado para que un cron externo (p. ej. GitHub Actions) lo dispare.
+ */
+export async function triggerNurture(req: Request, res: Response): Promise<void> {
+  const { limit } = z
+    .object({ limit: z.number().int().positive().max(500).optional() })
+    .parse(req.body ?? {});
+
+  const resumen = await processNurtureQueue(limit ?? 100);
+  res.json({ ok: resumen.fallidos === 0, resumen });
 }
 
 /**

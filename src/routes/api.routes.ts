@@ -11,6 +11,7 @@ import {
   previewAudit,
   siteHistory,
   triggerAudit,
+  triggerNurture,
 } from '../controllers/audit.controller';
 import { requireAdminToken } from '../middlewares/auth.middleware';
 import { rateLimit } from '../middlewares/rate-limit.middleware';
@@ -30,6 +31,7 @@ apiRouter.post('/billing/portal', rateLimit({ max: 30, windowMs: 60 * 60 * 1000 
 const admin = Router();
 admin.use(requireAdminToken);
 admin.post('/audits/run', asyncHandler(triggerAudit));
+admin.post('/nurture/run', asyncHandler(triggerNurture));
 admin.post('/audits/preview', asyncHandler(previewAudit));
 admin.get('/clients', asyncHandler(listClients));
 admin.get('/sites/:id/history', asyncHandler(siteHistory));
