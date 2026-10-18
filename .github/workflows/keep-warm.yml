@@ -1,0 +1,38 @@
+# -----------------------------------------------------------------------------
+# Keep-warm: mantiene despierta la app en Render free (que duerme tras ~15 min
+# de inactividad). Hace ping al endpoint de salud cada 10 minutos.
+#
+# - Gratis en repositorio publico (minutos de Actions ilimitados).
+# - No requiere tarjeta ni cuentas externas.
+#
+# Nota: GitHub puede retrasar los `schedule` unos minutos y desactiva los
+# workflows programados tras ~60 dias sin actividad en el repositorio (cualquier
+# push los reactiva). Para precision absoluta, usa tambien un monitor externo
+# gratuito (cron-job.org / UptimeRobot) apuntando a APP_BASE_URL/api/health.
+# -----------------------------------------------------------------------------
+name: Keep-warm
+
+on:
+  schedule:
+    # Cada 10 minutos (margen suficiente para el spin-down de 15 min de Render).
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+        run: |
+          if [ -z "$APP_BASE_URL" ]; then echo "Falta la variable APP_BASE_URL"; exit 1; fi
+          echo "Ping a $APP_BASE_URL/api/health"
+          # Esperamos hasta 120 s por si estaba dormido (cold start).
+          body=$(curl -sS -m 120 "$APP_BASE_URL/api/health")
+          echo "$body"
+          echo "$body" | grep -q '"ok":true' && echo "OK: app despierta" || { echo "La app no respondio ok"; exit 1; }
